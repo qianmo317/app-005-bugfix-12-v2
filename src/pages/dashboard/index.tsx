@@ -21,16 +21,17 @@ const Dashboard: React.FC = () => {
   const completedRecords = state.serviceRecords.filter(
     (r) => r.serviceDate.split('T')[0] === today
   );
-  const monthlyRevenue = state.memberships
-    .filter((m) => {
-      const joinedDate = new Date(m.joinDate);
+  // 本月营业额：本月实际完成收款的服务记录之和（与顾客详情页的消费记录同口径）
+  const monthlyRevenue = state.serviceRecords
+    .filter((r) => {
+      const recordDate = new Date(r.serviceDate);
       const now = new Date();
       return (
-        joinedDate.getMonth() === now.getMonth() &&
-        joinedDate.getFullYear() === now.getFullYear()
+        recordDate.getMonth() === now.getMonth() &&
+        recordDate.getFullYear() === now.getFullYear()
       );
     })
-    .reduce((sum, m) => sum + m.totalSpent, 0);
+    .reduce((sum, r) => sum + r.price, 0);
 
   const newCustomers = state.customers.filter((c) => {
     const createdDate = new Date(c.createdAt);
@@ -41,12 +42,12 @@ const Dashboard: React.FC = () => {
     );
   }).length;
 
+  // 今日预约：仅取 startTime 落在今天的单子，按开始时间升序
   const todayAppointments = state.appointments
-    .filter((a) => a.status !== 'cancelled')
-    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
-    .slice(0, 5);
+    .filter((a) => a.startTime.split('T')[0] === today && a.status !== 'cancelled')
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
 
-  const todayAppointmentList = todayAppointments.map((a) => {
+  const todayAppointmentList = todayAppointments.slice(0, 5).map((a) => {
     const customer = state.customers.find((c) => c.id === a.customerId);
     const service = state.services.find((s) => s.id === a.serviceId);
     const employee = state.employees.find((e) => e.id === a.employeeId);
@@ -71,24 +72,24 @@ const Dashboard: React.FC = () => {
     .sort((a, b) => b.value - a.value)
     .slice(0, 5);
 
-  const revenueTrendData = state.appointments
-    .filter((a) => {
-      const started = new Date(a.startTime);
-      const now = new Date();
-      return now.getTime() - started.getTime() < 7 * 24 * 3600 * 1000;
-    })
-    .reduce((acc, a) => {
-      const day = a.startTime.split('T')[0].slice(5).replace('-', '/');
-      const service = state.services.find((s) => s.id === a.serviceId);
-      const amount = service ? service.price : 0;
-      const hit = acc.find((x) => x.date === day);
+  // 营业趋势：最近 7 天（含今天）每天实际收款金额，来自服务记录而非预约标价
+  const revenueTrendData = (() => {
+    const days: { key: string; date: string; value: number }[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().split('T')[0];
+      days.push({ key, date: key.slice(5).replace('-', '/'), value: 0 });
+    }
+    state.serviceRecords.forEach((r) => {
+      const key = r.serviceDate.split('T')[0];
+      const hit = days.find((x) => x.key === key);
       if (hit) {
-        hit.value += amount;
-      } else {
-        acc.push({ date: day, value: amount });
+        hit.value += r.price;
       }
-      return acc;
-    }, [] as { date: string; value: number }[]);
+    });
+    return days.map(({ date, value }) => ({ date, value }));
+  })();
 
   const trendChartOption = {
     tooltip: {

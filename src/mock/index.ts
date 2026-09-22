@@ -225,8 +225,13 @@ export const mockAppointments = (
 
   for (let i = 0; i < 150; i++) {
     const startDate = new Date();
-    startDate.setDate(startDate.getDate() - Random.integer(1, 30));
-    startDate.setHours(Random.integer(9, 20), Random.integer(0, 59));
+    if (i < 8) {
+      // 当天预约，分布在营业时段 9:00-16:00
+      startDate.setHours(9 + i, Random.integer(0, 59), 0, 0);
+    } else {
+      startDate.setDate(startDate.getDate() - Random.integer(1, 30));
+      startDate.setHours(Random.integer(9, 20), Random.integer(0, 59));
+    }
 
     const duration = [30, 45, 60, 75, 90, 120][Random.integer(0, 5)];
     const endDate = new Date(startDate.getTime() + duration * 60 * 1000);
@@ -256,7 +261,12 @@ export const mockServiceRecords = (
   const records = [];
   for (let i = 0; i < 200; i++) {
     const date = new Date();
-    date.setDate(date.getDate() - Random.integer(1, 60));
+    if (i < 6) {
+      // 当天已完成的服务记录
+      date.setHours(Random.integer(9, 20), Random.integer(0, 59), 0, 0);
+    } else {
+      date.setDate(date.getDate() - Random.integer(1, 60));
+    }
 
     records.push({
       id: `SR${String(i + 1).padStart(6, '0')}`,
