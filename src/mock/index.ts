@@ -225,7 +225,7 @@ export const mockAppointments = (
 
   for (let i = 0; i < 150; i++) {
     const startDate = new Date();
-    startDate.setDate(startDate.getDate() - Random.integer(1, 30));
+    startDate.setDate(startDate.getDate() - Random.integer(0, 30));
     startDate.setHours(Random.integer(9, 20), Random.integer(0, 59));
 
     const duration = [30, 45, 60, 75, 90, 120][Random.integer(0, 5)];
@@ -256,7 +256,7 @@ export const mockServiceRecords = (
   const records = [];
   for (let i = 0; i < 200; i++) {
     const date = new Date();
-    date.setDate(date.getDate() - Random.integer(1, 60));
+    date.setDate(date.getDate() - Random.integer(0, 60));
 
     records.push({
       id: `SR${String(i + 1).padStart(6, '0')}`,

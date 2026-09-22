@@ -17,36 +17,49 @@ const Dashboard: React.FC = () => {
   const state = useSelector((state: RootState) => state.app);
 
   const today = new Date().toISOString().split('T')[0];
+  const now = new Date();
 
+  // 今日完成的服务记录（与顾客详情页"服务历史"为同一批记录）
   const completedRecords = state.serviceRecords.filter(
     (r) => r.serviceDate.split('T')[0] === today
   );
-  const monthlyRevenue = state.memberships
-    .filter((m) => {
-      const joinedDate = new Date(m.joinDate);
-      const now = new Date();
-      return (
-        joinedDate.getMonth() === now.getMonth() &&
-        joinedDate.getFullYear() === now.getFullYear()
-      );
-    })
-    .reduce((sum, m) => sum + m.totalSpent, 0);
 
-  const newCustomers = state.customers.filter((c) => {
-    const createdDate = new Date(c.createdAt);
-    const now = new Date();
-    return (
-      createdDate.getMonth() === now.getMonth() &&
-      createdDate.getFullYear() === now.getFullYear()
-    );
-  }).length;
+  // 本月营业额：本月服务记录的实际收款合计，环比上月
+  const currentMonthKey = today.slice(0, 7);
+  const [currentYear, currentMonth] = currentMonthKey.split('-').map(Number);
+  const lastMonthKey =
+    currentMonth === 1
+      ? `${currentYear - 1}-12`
+      : `${currentYear}-${String(currentMonth - 1).padStart(2, '0')}`;
+  const revenueOfMonth = (monthKey: string) =>
+    state.serviceRecords
+      .filter((r) => r.serviceDate.startsWith(monthKey))
+      .reduce((sum, r) => sum + r.price, 0);
+  const monthlyRevenue = revenueOfMonth(currentMonthKey);
+  const lastMonthRevenue = revenueOfMonth(lastMonthKey);
+  const revenueMoM =
+    lastMonthRevenue > 0
+      ? ((monthlyRevenue - lastMonthRevenue) / lastMonthRevenue) * 100
+      : null;
 
+  // 新增顾客：本月建档的顾客数，环比上月
+  const isSameMonth = (date: Date, ref: Date) =>
+    date.getMonth() === ref.getMonth() && date.getFullYear() === ref.getFullYear();
+  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const newCustomers = state.customers.filter((c) =>
+    isSameMonth(new Date(c.createdAt), now)
+  ).length;
+  const lastMonthNewCustomers = state.customers.filter((c) =>
+    isSameMonth(new Date(c.createdAt), lastMonth)
+  ).length;
+  const customerDelta = newCustomers - lastMonthNewCustomers;
+
+  // 今日预约：今天到店且未取消的预约，按开始时间升序
   const todayAppointments = state.appointments
-    .filter((a) => a.status !== 'cancelled')
-    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
-    .slice(0, 5);
+    .filter((a) => a.startTime.split('T')[0] === today && a.status !== 'cancelled')
+    .sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
 
-  const todayAppointmentList = todayAppointments.map((a) => {
+  const todayAppointmentList = todayAppointments.slice(0, 5).map((a) => {
     const customer = state.customers.find((c) => c.id === a.customerId);
     const service = state.services.find((s) => s.id === a.serviceId);
     const employee = state.employees.find((e) => e.id === a.employeeId);
@@ -71,24 +84,18 @@ const Dashboard: React.FC = () => {
     .sort((a, b) => b.value - a.value)
     .slice(0, 5);
 
-  const revenueTrendData = state.appointments
-    .filter((a) => {
-      const started = new Date(a.startTime);
-      const now = new Date();
-      return now.getTime() - started.getTime() < 7 * 24 * 3600 * 1000;
-    })
-    .reduce((acc, a) => {
-      const day = a.startTime.split('T')[0].slice(5).replace('-', '/');
-      const service = state.services.find((s) => s.id === a.serviceId);
-      const amount = service ? service.price : 0;
-      const hit = acc.find((x) => x.date === day);
-      if (hit) {
-        hit.value += amount;
-      } else {
-        acc.push({ date: day, value: amount });
-      }
-      return acc;
-    }, [] as { date: string; value: number }[]);
+  // 营业趋势：近7天（含今天）服务记录的实际收款，按天汇总
+  const revenueTrendData = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - (6 - i));
+    const dayKey = d.toISOString().split('T')[0];
+    return {
+      date: dayKey.slice(5).replace('-', '/'),
+      value: state.serviceRecords
+        .filter((r) => r.serviceDate.split('T')[0] === dayKey)
+        .reduce((sum, r) => sum + r.price, 0),
+    };
+  });
 
   const trendChartOption = {
     tooltip: {
@@ -205,16 +212,19 @@ const Dashboard: React.FC = () => {
       title: '本月营业额',
       value: formatCurrency(monthlyRevenue),
       icon: <DollarOutlined />,
-      trend: '+12.5%',
-      trendUp: true,
+      trend:
+        revenueMoM === null
+          ? '上月无记录'
+          : `较上月 ${revenueMoM >= 0 ? '+' : ''}${revenueMoM.toFixed(1)}%`,
+      trendUp: revenueMoM === null || revenueMoM >= 0,
       gradient: true,
     },
     {
       title: '新增顾客',
       value: newCustomers,
       icon: <UserAddOutlined />,
-      trend: '+8',
-      trendUp: true,
+      trend: `较上月 ${customerDelta >= 0 ? '+' : ''}${customerDelta}`,
+      trendUp: customerDelta >= 0,
     },
     {
       title: '预约数量',
@@ -268,14 +278,24 @@ const Dashboard: React.FC = () => {
 
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         <Col xs={24} lg={16}>
-          <Card className="card-wrapper" title="营业趋势" bordered={false}>
+          <Card
+            className="card-wrapper"
+            title="营业趋势"
+            extra={<span style={{ fontSize: 12, color: '#8c8c8c' }}>近7天 · 按服务记录实收</span>}
+            bordered={false}
+          >
             <div className="chart-container">
               <ReactECharts option={trendChartOption} style={{ height: '100%' }} />
             </div>
           </Card>
         </Col>
         <Col xs={24} lg={8}>
-          <Card className="card-wrapper" title="今日预约" bordered={false}>
+          <Card
+            className="card-wrapper"
+            title="今日预约"
+            extra={<span style={{ fontSize: 12, color: '#8c8c8c' }}>今天 · 未取消</span>}
+            bordered={false}
+          >
             {todayAppointmentList.length > 0 ? (
               <List
                 dataSource={todayAppointmentList}
